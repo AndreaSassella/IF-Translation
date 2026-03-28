@@ -139,18 +139,10 @@ class HuggingFaceGenerationAdapter(ModelAdapter):
 
     def generate(self, record: PromptRecord, prompt_text: str) -> str:
         pipe = self._get_pipeline()
-        generation_kwargs = {
-            "max_new_tokens": self.max_new_tokens,
-            "do_sample": self.temperature > 0,
-            "return_full_text": False,
-        }
-        if self.temperature > 0:
-            generation_kwargs["temperature"] = self.temperature
-            generation_kwargs["top_p"] = self.top_p
         try:
-            output = pipe([{"role": "user", "content": prompt_text}], **generation_kwargs)
+            output = pipe([{"role": "user", "content": prompt_text}], return_full_text=False)
         except Exception:
-            output = pipe(prompt_text, **generation_kwargs)
+            output = pipe(prompt_text, return_full_text=False)
         if isinstance(output, list) and output:
             first = output[0]
             if isinstance(first, dict):
@@ -187,8 +179,24 @@ class HuggingFaceGenerationAdapter(ModelAdapter):
         )
         if hasattr(self._pipeline, "model") and hasattr(self._pipeline.model, "generation_config"):
             generation_config = self._pipeline.model.generation_config
+            if hasattr(generation_config, "max_new_tokens"):
+                generation_config.max_new_tokens = self.max_new_tokens
             if hasattr(generation_config, "max_length"):
                 generation_config.max_length = None
+            if hasattr(generation_config, "do_sample"):
+                generation_config.do_sample = self.temperature > 0
+            if self.temperature > 0:
+                if hasattr(generation_config, "temperature"):
+                    generation_config.temperature = self.temperature
+                if hasattr(generation_config, "top_p"):
+                    generation_config.top_p = self.top_p
+            else:
+                if hasattr(generation_config, "temperature"):
+                    generation_config.temperature = None
+                if hasattr(generation_config, "top_p"):
+                    generation_config.top_p = None
+                if hasattr(generation_config, "top_k"):
+                    generation_config.top_k = None
         device = getattr(self._pipeline.model, "device", "unknown")
         hf_map = getattr(self._pipeline.model, "hf_device_map", None)
         print(f"[LLM] {self.model_id} loaded on device={device}, hf_device_map={hf_map}")

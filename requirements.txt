@@ -13,3 +13,4 @@ sentencepiece>=0.2.0
 protobuf>=5.28.0
 instruction_following_eval @ git+https://github.com/josejg/instruction_following_eval.git
 tqdm>=4.66.0
+nltk>=3.9.0

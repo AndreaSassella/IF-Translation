@@ -6,6 +6,7 @@ from collections import defaultdict
 from inspect import signature
 from typing import Dict, List, Tuple
 
+from .nltk_setup import ensure_ifeval_nltk_resources
 from .schemas import Constraint, EvaluationResult, PromptRecord
 
 
@@ -69,6 +70,7 @@ def _evaluate_ifeval_record(
     evaluated_prompt: str,
     raw_response: str,
 ) -> EvaluationResult:
+    ensure_ifeval_nltk_resources()
     try:
         from instruction_following_eval import instructions_registry
     except ImportError as exc:
