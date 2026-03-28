@@ -1,0 +1,20 @@
+{
+  "dataset_path": "data/sample/ifeval_like_sample.jsonl",
+  "models": [
+    "reference",
+    "fragile",
+    "echo"
+  ],
+  "paths": [
+    ["en", "fr", "en"],
+    ["en", "de", "en"],
+    ["en", "ja", "en"],
+    ["en", "fr", "ar", "en"]
+  ],
+  "regimes": [
+    "native",
+    "back_translated"
+  ],
+  "translation_engine": "drift",
+  "output_dir": "outputs/sample_run"
+}

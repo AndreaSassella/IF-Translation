@@ -1,0 +1,33 @@
+project:
+  name: translation-chains-ifeval
+  benchmark: IFEval
+  primary_metric: instruction_level_strict_accuracy
+
+translation:
+  engine: replace_me
+  preserve_formatting_markers: true
+  preserve_named_entities: false
+  cache_translations: true
+
+evaluation:
+  max_depth: 4
+  regimes:
+    - native
+    - back_translated
+  decoding:
+    temperature: 0.0
+    top_p: 1.0
+    max_new_tokens: 512
+
+analysis:
+  report_prompt_level: true
+  report_instruction_level: true
+  report_category_breakdown: true
+  fit_mixed_effects_models: true
+  save_error_cases: true
+
+ablation_plan:
+  second_translation_engine: true
+  human_verified_subset: true
+  token_preservation_subset: true
+  paraphrase_control: true

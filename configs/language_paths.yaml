@@ -1,0 +1,41 @@
+source_language: en
+
+single_hop_paths:
+  - [en, fr]
+  - [en, de]
+  - [en, es]
+  - [en, ru]
+  - [en, ar]
+  - [en, hi]
+  - [en, ja]
+
+back_translation_paths:
+  - [en, fr, en]
+  - [en, de, en]
+  - [en, es, en]
+  - [en, ru, en]
+  - [en, ar, en]
+  - [en, hi, en]
+  - [en, ja, en]
+
+multi_hop_paths:
+  - [en, de, ru, en]
+  - [en, fr, ar, en]
+  - [en, ja, hi, en]
+  - [en, es, de, fr, en]
+
+path_families:
+  latin_control:
+    - [en, fr, en]
+    - [en, de, en]
+    - [en, es, en]
+  script_shift:
+    - [en, ru, en]
+    - [en, ar, en]
+    - [en, hi, en]
+    - [en, ja, en]
+  multi_hop:
+    - [en, de, ru, en]
+    - [en, fr, ar, en]
+    - [en, ja, hi, en]
+    - [en, es, de, fr, en]
