@@ -104,7 +104,3 @@ The repository ships with executable local adapters so the full pipeline works i
   - `echo`
 
 These are intentionally simple. They are for smoke testing and development, not for publication-grade runs. The adapter interfaces are designed so you can later plug in real translation systems and real LLM backends.
-
-## Status
-
-The repository is now executable in a normal Python environment, but I could not run it inside this workspace because Python is not installed in the current session.
