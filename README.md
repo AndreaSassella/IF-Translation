@@ -152,7 +152,3 @@ Every report build also writes `audit.json`, which checks:
 - whether baseline rows are present
 - whether expected regimes are present
 - whether perturbed averages suspiciously exceed baseline averages
-
-## Status
-
-The repository is now executable in a normal Python environment, but I could not run it inside this workspace because Python is not installed in the current session.
