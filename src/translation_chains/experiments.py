@@ -13,6 +13,11 @@ from .reporting import build_reports
 from .schemas import ExperimentStatus, TranslationStep
 from .status import write_status
 
+try:
+    from tqdm.auto import tqdm
+except ImportError:  # pragma: no cover
+    tqdm = None
+
 
 def run_experiment(config_path: Path) -> Path:
     with config_path.open("r", encoding="utf-8") as handle:
@@ -45,10 +50,23 @@ def run_experiment(config_path: Path) -> Path:
     )
     write_status(status_path, status)
 
+    total_steps_per_record = 1 + (len(config["regimes"]) * sum(max(len(path) - 1, 0) for path in config["paths"]))
+    overall_total = len(models) * len(dataset) * total_steps_per_record
+    overall_bar = _make_progress_bar(
+        total=overall_total,
+        desc="Overall experiment progress",
+        position=0,
+    )
+
     results_path = output_dir / "results.jsonl"
     with results_path.open("w", encoding="utf-8") as sink:
-        for record in dataset:
-            for model in models:
+        for model_index, model in enumerate(models, start=1):
+            model_bar = _make_progress_bar(
+                total=len(dataset) * total_steps_per_record,
+                desc=f"Model {model_index}/{len(models)}: {model.name}",
+                position=1,
+            )
+            for record in dataset:
                 baseline = evaluate_record(
                     record=record,
                     model_name=model.name,
@@ -63,6 +81,8 @@ def run_experiment(config_path: Path) -> Path:
                 status.completed_rows += 1
                 status.updated_at = datetime.now(timezone.utc).isoformat()
                 write_status(status_path, status)
+                _progress_update(overall_bar, 1)
+                _progress_update(model_bar, 1)
 
                 for regime in config["regimes"]:
                     for path in config["paths"]:
@@ -112,11 +132,15 @@ def run_experiment(config_path: Path) -> Path:
                             status.completed_rows += 1
                             status.updated_at = datetime.now(timezone.utc).isoformat()
                             write_status(status_path, status)
+                            _progress_update(overall_bar, 1)
+                            _progress_update(model_bar, 1)
+            _progress_close(model_bar)
 
     status.status = "completed"
     status.finished_at = datetime.now(timezone.utc).isoformat()
     status.updated_at = status.finished_at
     write_status(status_path, status)
+    _progress_close(overall_bar)
     build_reports(results_path, output_dir)
     return results_path
 
@@ -153,3 +177,19 @@ def _make_model_from_spec(spec: Any):
             return make_model_adapter(spec["model_id"], spec)
         return make_model_adapter(spec["name"], spec)
     raise ValueError(f"Unsupported model spec: {spec}")
+
+
+def _make_progress_bar(total: int, desc: str, position: int):
+    if tqdm is None:
+        return None
+    return tqdm(total=total, desc=desc, position=position, leave=True)
+
+
+def _progress_update(bar, amount: int) -> None:
+    if bar is not None:
+        bar.update(amount)
+
+
+def _progress_close(bar) -> None:
+    if bar is not None:
+        bar.close()

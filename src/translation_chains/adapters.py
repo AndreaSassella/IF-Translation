@@ -211,10 +211,12 @@ class NLLBTranslationAdapter(TranslationAdapter):
         model_id: str = "facebook/nllb-200-distilled-600M",
         device_map: str = "auto",
         max_length: int = 1024,
+        torch_dtype: Optional[str] = None,
     ) -> None:
         self.model_id = model_id
         self.device_map = device_map
         self.max_length = max_length
+        self.torch_dtype = torch_dtype
         self._tokenizer = None
         self._model = None
 
@@ -237,14 +239,22 @@ class NLLBTranslationAdapter(TranslationAdapter):
         if self._tokenizer is not None and self._model is not None:
             return self._tokenizer, self._model
         try:
+            import torch
             from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
         except ImportError as exc:
             raise ImportError(
                 "The NLLB translation adapter requires `transformers` and `torch`. "
                 "Install requirements.txt before using translation_engine='nllb'."
             ) from exc
+        dtype = None
+        if self.torch_dtype:
+            dtype = getattr(torch, self.torch_dtype)
         self._tokenizer = AutoTokenizer.from_pretrained(self.model_id)
-        self._model = AutoModelForSeq2SeqLM.from_pretrained(self.model_id)
+        self._model = AutoModelForSeq2SeqLM.from_pretrained(
+            self.model_id,
+            device_map=self.device_map,
+            torch_dtype=dtype,
+        )
         return self._tokenizer, self._model
 
 
@@ -259,6 +269,7 @@ def make_translation_adapter(name: str, config: Optional[Dict[str, Any]] = None)
             model_id=config.get("model_id", "facebook/nllb-200-distilled-600M"),
             device_map=config.get("device_map", "auto"),
             max_length=config.get("max_length", 1024),
+            torch_dtype=config.get("torch_dtype"),
         )
     if name not in registry:
         raise ValueError(f"Unknown translation adapter: {name}")

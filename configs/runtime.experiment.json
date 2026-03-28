@@ -35,7 +35,8 @@
   "translation_adapter": {
     "model_id": "facebook/nllb-200-distilled-600M",
     "device_map": "auto",
-    "max_length": 1024
+    "max_length": 1024,
+    "torch_dtype": "bfloat16"
   },
   "output_dir": "outputs/ifeval_full_run"
 }

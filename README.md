@@ -133,6 +133,15 @@ The default config in `configs/runtime.experiment.json` runs:
 
 This is the smallest realistic starting point that still executes the full benchmark.
 
+## Progress Tracking
+
+When you run the experiment from the command line, the code now shows:
+
+- an overall progress bar for the full experiment
+- a per-model progress bar while each model is being evaluated
+
+The persistent machine-readable status is still written to `status.json`, so you have both terminal feedback and a saved progress snapshot.
+
 ## Notebooks
 
 The notebooks are meant to make the code path easy to follow:
