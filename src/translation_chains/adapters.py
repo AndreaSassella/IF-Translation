@@ -189,6 +189,9 @@ class HuggingFaceGenerationAdapter(ModelAdapter):
             generation_config = self._pipeline.model.generation_config
             if hasattr(generation_config, "max_length"):
                 generation_config.max_length = None
+        device = getattr(self._pipeline.model, "device", "unknown")
+        hf_map = getattr(self._pipeline.model, "hf_device_map", None)
+        print(f"[LLM] {self.model_id} loaded on device={device}, hf_device_map={hf_map}")
         return self._pipeline
 
 
@@ -255,6 +258,9 @@ class NLLBTranslationAdapter(TranslationAdapter):
             device_map=self.device_map,
             torch_dtype=dtype,
         )
+        device = getattr(self._model, "device", "unknown")
+        hf_map = getattr(self._model, "hf_device_map", None)
+        print(f"[MT] {self.model_id} loaded on device={device}, hf_device_map={hf_map}")
         return self._tokenizer, self._model
 
 
