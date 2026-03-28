@@ -4,7 +4,7 @@ import json
 import random
 import re
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import Any, Dict, List, Optional
 
 from .schemas import PromptRecord
 
@@ -118,22 +118,164 @@ class FragileModelAdapter(ModelAdapter):
         return response
 
 
-def make_translation_adapter(name: str) -> TranslationAdapter:
+class HuggingFaceGenerationAdapter(ModelAdapter):
+    def __init__(
+        self,
+        model_id: str,
+        max_new_tokens: int = 512,
+        temperature: float = 0.0,
+        top_p: float = 1.0,
+        device_map: str = "auto",
+        torch_dtype: Optional[str] = None,
+    ) -> None:
+        self.name = model_id
+        self.model_id = model_id
+        self.max_new_tokens = max_new_tokens
+        self.temperature = temperature
+        self.top_p = top_p
+        self.device_map = device_map
+        self.torch_dtype = torch_dtype
+        self._pipeline = None
+
+    def generate(self, record: PromptRecord, prompt_text: str) -> str:
+        pipe = self._get_pipeline()
+        generation_kwargs = {
+            "max_new_tokens": self.max_new_tokens,
+            "do_sample": self.temperature > 0,
+            "temperature": max(self.temperature, 1e-5),
+            "top_p": self.top_p,
+            "return_full_text": False,
+        }
+        try:
+            output = pipe([{"role": "user", "content": prompt_text}], **generation_kwargs)
+        except Exception:
+            output = pipe(prompt_text, **generation_kwargs)
+        if isinstance(output, list) and output:
+            first = output[0]
+            if isinstance(first, dict):
+                if "generated_text" in first:
+                    generated = first["generated_text"]
+                    if isinstance(generated, list) and generated:
+                        last = generated[-1]
+                        if isinstance(last, dict):
+                            return str(last.get("content", ""))
+                    return str(generated)
+        return str(output)
+
+    def _get_pipeline(self):
+        if self._pipeline is not None:
+            return self._pipeline
+        try:
+            import torch
+            from transformers import pipeline
+        except ImportError as exc:
+            raise ImportError(
+                "Hugging Face model adapters require `transformers` and `torch`. "
+                "Install requirements.txt before using adapter.type='huggingface_generation'."
+            ) from exc
+
+        dtype = None
+        if self.torch_dtype:
+            dtype = getattr(torch, self.torch_dtype)
+
+        self._pipeline = pipeline(
+            "text-generation",
+            model=self.model_id,
+            device_map=self.device_map,
+            torch_dtype=dtype,
+        )
+        return self._pipeline
+
+
+class NLLBTranslationAdapter(TranslationAdapter):
+    name = "nllb"
+
+    _LANG_MAP = {
+        "en": "eng_Latn",
+        "fr": "fra_Latn",
+        "de": "deu_Latn",
+        "es": "spa_Latn",
+        "ru": "rus_Cyrl",
+        "ar": "arb_Arab",
+        "hi": "hin_Deva",
+        "ja": "jpn_Jpan",
+    }
+
+    def __init__(
+        self,
+        model_id: str = "facebook/nllb-200-distilled-600M",
+        device_map: str = "auto",
+        max_length: int = 1024,
+    ) -> None:
+        self.model_id = model_id
+        self.device_map = device_map
+        self.max_length = max_length
+        self._tokenizer = None
+        self._model = None
+
+    def translate(self, text: str, source_lang: str, target_lang: str) -> str:
+        tokenizer, model = self._get_components()
+        src = self._LANG_MAP[source_lang]
+        tgt = self._LANG_MAP[target_lang]
+        tokenizer.src_lang = src
+        encoded = tokenizer(text, return_tensors="pt", truncation=True, max_length=self.max_length)
+        if hasattr(model, "device"):
+            encoded = {key: value.to(model.device) for key, value in encoded.items()}
+        generated = model.generate(
+            **encoded,
+            forced_bos_token_id=tokenizer.convert_tokens_to_ids(tgt),
+            max_length=self.max_length,
+        )
+        return tokenizer.batch_decode(generated, skip_special_tokens=True)[0]
+
+    def _get_components(self):
+        if self._tokenizer is not None and self._model is not None:
+            return self._tokenizer, self._model
+        try:
+            from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+        except ImportError as exc:
+            raise ImportError(
+                "The NLLB translation adapter requires `transformers` and `torch`. "
+                "Install requirements.txt before using translation_engine='nllb'."
+            ) from exc
+        self._tokenizer = AutoTokenizer.from_pretrained(self.model_id)
+        self._model = AutoModelForSeq2SeqLM.from_pretrained(self.model_id)
+        return self._tokenizer, self._model
+
+
+def make_translation_adapter(name: str, config: Optional[Dict[str, Any]] = None) -> TranslationAdapter:
+    config = config or {}
     registry = {
         "identity": IdentityTranslationAdapter,
         "drift": DriftTranslationAdapter,
     }
+    if name == "nllb":
+        return NLLBTranslationAdapter(
+            model_id=config.get("model_id", "facebook/nllb-200-distilled-600M"),
+            device_map=config.get("device_map", "auto"),
+            max_length=config.get("max_length", 1024),
+        )
     if name not in registry:
         raise ValueError(f"Unknown translation adapter: {name}")
     return registry[name]()
 
 
-def make_model_adapter(name: str) -> ModelAdapter:
+def make_model_adapter(name: str, config: Optional[Dict[str, Any]] = None) -> ModelAdapter:
+    config = config or {}
     registry = {
         "echo": EchoModelAdapter,
         "reference": ReferenceModelAdapter,
         "fragile": FragileModelAdapter,
     }
+    if config.get("type") == "huggingface_generation":
+        return HuggingFaceGenerationAdapter(
+            model_id=config["model_id"],
+            max_new_tokens=config.get("max_new_tokens", 512),
+            temperature=config.get("temperature", 0.0),
+            top_p=config.get("top_p", 1.0),
+            device_map=config.get("device_map", "auto"),
+            torch_dtype=config.get("torch_dtype"),
+        )
     if name not in registry:
         raise ValueError(f"Unknown model adapter: {name}")
     return registry[name]()

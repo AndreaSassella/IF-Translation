@@ -16,6 +16,7 @@ class PromptRecord:
     constraints: List[Constraint]
     ideal_response: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
+    raw_example: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

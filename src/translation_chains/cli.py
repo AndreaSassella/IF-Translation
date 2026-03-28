@@ -80,7 +80,10 @@ def main(argv: list[str] | None = None) -> int:
             "dataset_name": dataset_cfg.get("name"),
             "dataset_split": dataset_cfg.get("split"),
             "records": len(dataset),
-            "models": config.get("models", []),
+            "models": [
+                item if isinstance(item, str) else item.get("model_id", item.get("name"))
+                for item in config.get("models", [])
+            ],
             "paths": config.get("paths", []),
             "regimes": config.get("regimes", []),
             "translation_engine": config.get("translation_engine"),

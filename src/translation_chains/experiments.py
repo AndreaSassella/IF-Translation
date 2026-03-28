@@ -22,9 +22,11 @@ def run_experiment(config_path: Path) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     dataset = load_dataset_from_config(config_path, config)
-    _validate_dataset_support(dataset, config)
-    translation = make_translation_adapter(config["translation_engine"])
-    models = [make_model_adapter(name) for name in config["models"]]
+    translation = make_translation_adapter(
+        config["translation_engine"],
+        config.get("translation_adapter", {}),
+    )
+    models = [_make_model_from_spec(spec) for spec in config["models"]]
     status_path = output_dir / "status.json"
     run_name = config.get("run_name", output_dir.name)
     dataset_source = _describe_dataset_source(config)
@@ -142,17 +144,12 @@ def _expected_row_count(dataset_size: int, config: Dict[str, Any]) -> int:
     return dataset_size * len(config["models"]) * per_model
 
 
-def _validate_dataset_support(dataset: List[Any], config: Dict[str, Any]) -> None:
-    allow_placeholder = bool(config.get("allow_placeholder_ifeval_evaluator", False))
-    has_placeholder_ifeval = any(
-        constraint.type == "ifeval_instruction"
-        for record in dataset
-        for constraint in getattr(record, "constraints", [])
-    )
-    if has_placeholder_ifeval and not allow_placeholder:
-        raise ValueError(
-            "This dataset appears to require a real IFEval-style validator, but the current "
-            "repository only has a placeholder evaluator for raw instruction IDs. "
-            "Set `allow_placeholder_ifeval_evaluator` to true only for debugging, or integrate "
-            "the official validator before treating the results as benchmark-valid."
-        )
+def _make_model_from_spec(spec: Any):
+    if isinstance(spec, str):
+        return make_model_adapter(spec, {})
+    if isinstance(spec, dict):
+        adapter_type = spec.get("type")
+        if adapter_type == "huggingface_generation":
+            return make_model_adapter(spec["model_id"], spec)
+        return make_model_adapter(spec["name"], spec)
+    raise ValueError(f"Unsupported model spec: {spec}")

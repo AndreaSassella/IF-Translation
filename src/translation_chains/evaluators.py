@@ -17,6 +17,17 @@ def evaluate_record(
     evaluated_prompt: str,
     raw_response: str,
 ) -> EvaluationResult:
+    if record.metadata.get("dataset_name") in {"google/IFEval", "HuggingFaceH4/ifeval", "IFEval"}:
+        return _evaluate_ifeval_record(
+            record=record,
+            model_name=model_name,
+            regime=regime,
+            language_path=language_path,
+            depth=depth,
+            evaluated_prompt=evaluated_prompt,
+            raw_response=raw_response,
+        )
+
     checks = []
     category_bucket: Dict[str, List[float]] = defaultdict(list)
 
@@ -46,6 +57,75 @@ def evaluate_record(
         category_scores=category_scores,
         extra={"constraint_checks": checks},
     )
+
+
+def _evaluate_ifeval_record(
+    record: PromptRecord,
+    model_name: str,
+    regime: str,
+    language_path: List[str],
+    depth: int,
+    evaluated_prompt: str,
+    raw_response: str,
+) -> EvaluationResult:
+    try:
+        from instruction_following_eval import evaluate_instruction_following
+    except ImportError as exc:
+        raise ImportError(
+            "IFEval execution requires the `instruction_following_eval` package. "
+            "Install requirements.txt before running on the full IFEval dataset."
+        ) from exc
+
+    raw = dict(record.raw_example)
+    raw["response"] = raw_response
+    metrics = evaluate_instruction_following([raw])
+
+    prompt_level_strict = float(_metric(metrics, "prompt_level_strict_acc", "prompt-level-strict-accuracy", default=0.0))
+    prompt_level_loose = float(_metric(metrics, "prompt_level_loose_acc", "prompt-level-loose-accuracy", default=0.0))
+
+    inst_strict = _metric(metrics, "inst_level_strict_acc", "instruction_level_strict_acc", default=0.0)
+    inst_loose = _metric(metrics, "inst_level_loose_acc", "instruction_level_loose_acc", default=0.0)
+    if isinstance(inst_strict, list):
+        instruction_level_strict = sum(float(x) for x in inst_strict) / len(inst_strict) if inst_strict else 0.0
+    else:
+        instruction_level_strict = float(inst_strict or 0.0)
+    if isinstance(inst_loose, list):
+        instruction_level_loose = sum(float(x) for x in inst_loose) / len(inst_loose) if inst_loose else 0.0
+    else:
+        instruction_level_loose = float(inst_loose or 0.0)
+
+    category_scores = {}
+    instruction_ids = raw.get("instruction_id_list", [])
+    if isinstance(inst_strict, list):
+        category_bucket: Dict[str, List[float]] = defaultdict(list)
+        for instruction_id, value in zip(instruction_ids, inst_strict):
+            category_bucket[str(instruction_id)].append(float(value))
+        category_scores = {
+            category: sum(values) / len(values) for category, values in category_bucket.items()
+        }
+
+    return EvaluationResult(
+        model_name=model_name,
+        prompt_id=record.prompt_id,
+        regime=regime,
+        language_path=language_path,
+        depth=depth,
+        evaluated_prompt=evaluated_prompt,
+        raw_response=raw_response,
+        prompt_level_strict=prompt_level_strict,
+        prompt_level_loose=prompt_level_loose,
+        instruction_level_strict=instruction_level_strict,
+        instruction_level_loose=instruction_level_loose,
+        category_scores=category_scores,
+        extra={"ifeval_metrics": metrics},
+    )
+
+
+def _metric(metrics: Dict[str, object], *keys: str, default: object) -> object:
+    for key in keys:
+        if key in metrics:
+            return metrics[key]
+    return default
 
 
 def _check_constraint(constraint: Constraint, response: str) -> bool:

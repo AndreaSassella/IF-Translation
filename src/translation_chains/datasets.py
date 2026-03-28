@@ -30,6 +30,7 @@ def load_jsonl_dataset(path: Path) -> List[PromptRecord]:
                     constraints=constraints,
                     ideal_response=data.get("ideal_response"),
                     metadata={"line_number": line_number},
+                    raw_example=dict(data),
                 )
             )
     return records
@@ -98,12 +99,19 @@ def load_huggingface_dataset(
                     "dataset_split": split,
                     "source": "huggingface",
                 },
+                raw_example=dict(item),
             )
         )
     return records
 
 
 def _extract_constraints(item: Dict[str, Any], constraints_field: Optional[str]) -> List[Constraint]:
+    if constraints_field == "instruction_id_list" and constraints_field in item:
+        return [
+            Constraint(type="ifeval_instruction", value=str(value), category="ifeval_instruction")
+            for value in item[constraints_field]
+        ]
+
     if constraints_field and constraints_field in item:
         raw_constraints = item[constraints_field]
         if isinstance(raw_constraints, list):

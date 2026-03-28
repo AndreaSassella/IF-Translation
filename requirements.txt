@@ -6,3 +6,9 @@ ipykernel>=6.29.0
 pandas>=2.2.0
 matplotlib>=3.8.0
 pyyaml>=6.0.2
+transformers>=4.46.0
+torch>=2.4.0
+accelerate>=0.34.0
+sentencepiece>=0.2.0
+protobuf>=5.28.0
+instruction_following_eval @ git+https://github.com/josejg/instruction_following_eval.git

@@ -29,7 +29,7 @@ Repeated translation acts as a structured perturbation on an instruction. If a b
 - `configs/models.yaml`: candidate model panel in the 0.5B-10B range
 - `configs/language_paths.yaml`: translation-chain families and controls
 - `configs/experiment.yaml`: default experimental settings
-- `configs/runtime.experiment.json`: runnable local config
+- `configs/runtime.experiment.json`: default full `IFEval` config for command-line experiments
 - `configs/runtime.hf.example.json`: example Hugging Face-backed config
 - `data/sample/ifeval_like_sample.jsonl`: local `IFEval`-like sample dataset
 - `src/translation_chains/`: executable pipeline for loading prompts, translating, evaluating, and aggregating
@@ -79,30 +79,34 @@ The core pipeline is standard-library-first, but the full research workflow now 
 2. From the repository root, run:
 
 ```bash
-python main.py inspect-dataset --dataset data/sample/ifeval_like_sample.jsonl
+pip install -r requirements.txt
 python main.py inspect-config --config configs/runtime.experiment.json
 python main.py run --config configs/runtime.experiment.json
-python main.py status --status-file outputs/sample_run/status.json
-python main.py report --results outputs/sample_run/results.jsonl --output-dir outputs/sample_run
-python main.py audit-results --results outputs/sample_run/results.jsonl --output-dir outputs/sample_run
+python main.py status --status-file outputs/ifeval_full_run/status.json
+python main.py report --results outputs/ifeval_full_run/results.jsonl --output-dir outputs/ifeval_full_run
+python main.py audit-results --results outputs/ifeval_full_run/results.jsonl --output-dir outputs/ifeval_full_run
 ```
 
 Expected outputs:
 
-- `outputs/sample_run/results.jsonl`
-- `outputs/sample_run/summary.json`
-- `outputs/sample_run/status.json`
-- `outputs/sample_run/model_by_depth.csv`
-- `outputs/sample_run/regime_summary.csv`
-- `outputs/sample_run/category_scores.csv`
-- `outputs/sample_run/REPORT.md`
-- `outputs/sample_run/audit.json`
+- `outputs/ifeval_full_run/results.jsonl`
+- `outputs/ifeval_full_run/summary.json`
+- `outputs/ifeval_full_run/status.json`
+- `outputs/ifeval_full_run/model_by_depth.csv`
+- `outputs/ifeval_full_run/regime_summary.csv`
+- `outputs/ifeval_full_run/category_scores.csv`
+- `outputs/ifeval_full_run/REPORT.md`
+- `outputs/ifeval_full_run/audit.json`
 
 ## Dataset Source
 
-The current default experiment config does **not** use Hugging Face. It uses the local sample dataset in `data/sample/ifeval_like_sample.jsonl`.
+The current default experiment config **does** use the full Hugging Face `IFEval` dataset:
 
-If you want to run against a Hugging Face dataset, use `configs/runtime.hf.example.json` as a starting point. The repository now supports two dataset modes:
+- dataset: `google/IFEval`
+- split: `train`
+- scope: full split, no row limit
+
+The repository also still supports a local JSONL mode for debugging. In total, it supports two dataset modes:
 
 - `local_jsonl`
 - `huggingface`
@@ -110,7 +114,23 @@ If you want to run against a Hugging Face dataset, use `configs/runtime.hf.examp
 When a run finishes, `summary.json` records the detected dataset source so you can verify what was actually used.
 
 Important caveat:
-Loading `IFEval` from Hugging Face is now supported, but reproducing the official `IFEval` benchmark still requires integrating the real validator logic for raw instruction IDs. The repository includes a safety guard and will refuse to run those cases unless you explicitly set `allow_placeholder_ifeval_evaluator` to `true` for debugging only.
+The repo now uses the full `IFEval` dataset together with the installable `instruction_following_eval` evaluator package so the CLI can compute benchmark-style scores from the command line.
+
+## Default Runtime
+
+The default config in `configs/runtime.experiment.json` runs:
+
+- dataset: `google/IFEval`
+- evaluated model: `Qwen/Qwen2.5-0.5B-Instruct`
+- translation model: `facebook/nllb-200-distilled-600M`
+- regimes: `native`, `back_translated`
+- paths:
+  - `en -> fr -> en`
+  - `en -> de -> en`
+  - `en -> ja -> en`
+  - `en -> fr -> ar -> en`
+
+This is the smallest realistic starting point that still executes the full benchmark.
 
 ## Notebooks
 

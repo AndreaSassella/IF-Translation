@@ -2,17 +2,25 @@
   "run_name": "hf-ifeval-example",
   "dataset": {
     "type": "huggingface",
-    "name": "HuggingFaceH4/ifeval",
+    "name": "google/IFEval",
     "split": "train",
     "prompt_field": "prompt",
-    "prompt_id_field": "prompt_id",
-    "constraints_field": "constraints",
+    "prompt_id_field": "key",
+    "constraints_field": "instruction_id_list",
     "ideal_response_field": null,
-    "limit": 100
+    "limit": null
   },
   "models": [
-    "reference",
-    "fragile"
+    {
+      "name": "Qwen2.5-0.5B-Instruct",
+      "type": "huggingface_generation",
+      "model_id": "Qwen/Qwen2.5-0.5B-Instruct",
+      "max_new_tokens": 512,
+      "temperature": 0.0,
+      "top_p": 1.0,
+      "device_map": "auto",
+      "torch_dtype": "bfloat16"
+    }
   ],
   "paths": [
     ["en", "fr", "en"],
@@ -22,7 +30,11 @@
     "native",
     "back_translated"
   ],
-  "allow_placeholder_ifeval_evaluator": false,
-  "translation_engine": "drift",
+  "translation_engine": "nllb",
+  "translation_adapter": {
+    "model_id": "facebook/nllb-200-distilled-600M",
+    "device_map": "auto",
+    "max_length": 1024
+  },
   "output_dir": "outputs/hf_example_run"
 }
