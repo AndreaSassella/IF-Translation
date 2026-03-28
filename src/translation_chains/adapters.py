@@ -142,10 +142,11 @@ class HuggingFaceGenerationAdapter(ModelAdapter):
         generation_kwargs = {
             "max_new_tokens": self.max_new_tokens,
             "do_sample": self.temperature > 0,
-            "temperature": max(self.temperature, 1e-5),
-            "top_p": self.top_p,
             "return_full_text": False,
         }
+        if self.temperature > 0:
+            generation_kwargs["temperature"] = self.temperature
+            generation_kwargs["top_p"] = self.top_p
         try:
             output = pipe([{"role": "user", "content": prompt_text}], **generation_kwargs)
         except Exception:
@@ -184,6 +185,10 @@ class HuggingFaceGenerationAdapter(ModelAdapter):
             device_map=self.device_map,
             torch_dtype=dtype,
         )
+        if hasattr(self._pipeline, "model") and hasattr(self._pipeline.model, "generation_config"):
+            generation_config = self._pipeline.model.generation_config
+            if hasattr(generation_config, "max_length"):
+                generation_config.max_length = None
         return self._pipeline
 
 

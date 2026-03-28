@@ -81,6 +81,7 @@ The core pipeline is standard-library-first, but the full research workflow now 
 ```bash
 pip install -r requirements.txt
 python main.py inspect-config --config configs/runtime.experiment.json
+python main.py preflight --config configs/runtime.experiment.json
 python main.py run --config configs/runtime.experiment.json
 python main.py status --status-file outputs/ifeval_full_run/status.json
 python main.py report --results outputs/ifeval_full_run/results.jsonl --output-dir outputs/ifeval_full_run

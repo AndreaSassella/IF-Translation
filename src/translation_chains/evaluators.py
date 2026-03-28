@@ -70,7 +70,7 @@ def _evaluate_ifeval_record(
     raw_response: str,
 ) -> EvaluationResult:
     try:
-        from instruction_following_eval import evaluate_instruction_following
+        from instruction_following_eval import instructions_registry
     except ImportError as exc:
         raise ImportError(
             "IFEval execution requires the `instruction_following_eval` package. "
@@ -78,31 +78,32 @@ def _evaluate_ifeval_record(
         ) from exc
 
     raw = dict(record.raw_example)
-    metrics = _run_ifeval(evaluate_instruction_following, raw, raw_response)
+    strict_flags = _ifeval_follow_list(raw, raw_response, instructions_registry, strict=True)
+    loose_flags = _ifeval_follow_list(raw, raw_response, instructions_registry, strict=False)
 
-    prompt_level_strict = float(_metric(metrics, "prompt_level_strict_acc", "prompt-level-strict-accuracy", default=0.0))
-    prompt_level_loose = float(_metric(metrics, "prompt_level_loose_acc", "prompt-level-loose-accuracy", default=0.0))
+    prompt_level_strict = float(all(strict_flags))
+    prompt_level_loose = float(all(loose_flags))
+    instruction_level_strict = (
+        sum(float(x) for x in strict_flags) / len(strict_flags) if strict_flags else 0.0
+    )
+    instruction_level_loose = (
+        sum(float(x) for x in loose_flags) / len(loose_flags) if loose_flags else 0.0
+    )
 
-    inst_strict = _metric(metrics, "inst_level_strict_acc", "instruction_level_strict_acc", default=0.0)
-    inst_loose = _metric(metrics, "inst_level_loose_acc", "instruction_level_loose_acc", default=0.0)
-    if isinstance(inst_strict, list):
-        instruction_level_strict = sum(float(x) for x in inst_strict) / len(inst_strict) if inst_strict else 0.0
-    else:
-        instruction_level_strict = float(inst_strict or 0.0)
-    if isinstance(inst_loose, list):
-        instruction_level_loose = sum(float(x) for x in inst_loose) / len(inst_loose) if inst_loose else 0.0
-    else:
-        instruction_level_loose = float(inst_loose or 0.0)
-
-    category_scores = {}
     instruction_ids = raw.get("instruction_id_list", [])
-    if isinstance(inst_strict, list):
-        category_bucket: Dict[str, List[float]] = defaultdict(list)
-        for instruction_id, value in zip(instruction_ids, inst_strict):
-            category_bucket[str(instruction_id)].append(float(value))
-        category_scores = {
-            category: sum(values) / len(values) for category, values in category_bucket.items()
-        }
+    category_bucket: Dict[str, List[float]] = defaultdict(list)
+    for instruction_id, value in zip(instruction_ids, strict_flags):
+        category_bucket[str(instruction_id)].append(float(value))
+    category_scores = {
+        category: sum(values) / len(values) for category, values in category_bucket.items()
+    }
+
+    metrics = {
+        "prompt_level_strict_acc": prompt_level_strict,
+        "prompt_level_loose_acc": prompt_level_loose,
+        "inst_level_strict_acc": strict_flags,
+        "inst_level_loose_acc": loose_flags,
+    }
 
     return EvaluationResult(
         model_name=model_name,
@@ -121,41 +122,90 @@ def _evaluate_ifeval_record(
     )
 
 
-def _metric(metrics: Dict[str, object], *keys: str, default: object) -> object:
-    for key in keys:
-        if key in metrics:
-            return metrics[key]
-    return default
+def _ifeval_follow_list(
+    raw_example: Dict[str, object],
+    raw_response: str,
+    instructions_registry,
+    strict: bool,
+) -> List[bool]:
+    all_responses = _candidate_responses(raw_response, strict=strict)
+    instruction_ids = list(raw_example.get("instruction_id_list", []))
+    kwargs_list = list(raw_example.get("kwargs", []))
+    prompt = str(raw_example.get("prompt", ""))
 
+    output: List[bool] = []
+    for index, instruction_id in enumerate(instruction_ids):
+        instruction_cls = instructions_registry.INSTRUCTION_DICT[instruction_id]
+        instruction = instruction_cls(instruction_id)
+        raw_kwargs = kwargs_list[index] if index < len(kwargs_list) else {}
+        filtered_kwargs = _filter_instruction_kwargs(instruction, raw_kwargs)
+        instruction.build_description(**filtered_kwargs)
 
-def _run_ifeval(evaluate_instruction_following, raw_example: Dict[str, object], raw_response: str) -> Dict[str, object]:
-    """
-    Support the common IFEval package API variants:
-
-    1. evaluate_instruction_following(inputs, responses)
-    2. evaluate_instruction_following(examples)
-    3. evaluate_instruction_following(prompts=..., responses=...)
-    """
-    try:
-        params = list(signature(evaluate_instruction_following).parameters)
-    except (TypeError, ValueError):
-        params = []
-
-    prompt_payload = [dict(raw_example)]
-    response_payload = [raw_response]
-
-    if len(params) >= 2:
-        first, second = params[0], params[1]
         try:
-            return evaluate_instruction_following(**{first: prompt_payload, second: response_payload})
-        except TypeError:
-            return evaluate_instruction_following(prompt_payload, response_payload)
+            args = instruction.get_instruction_args()
+        except Exception:
+            args = None
+        if args and "prompt" in args:
+            instruction.build_description(prompt=prompt)
 
-    merged = [dict(raw_example, response=raw_response)]
+        is_following = False
+        for candidate in all_responses:
+            if candidate.strip() and instruction.check_following(candidate):
+                is_following = True
+                break
+        output.append(is_following)
+    return output
+
+
+def _candidate_responses(raw_response: str, strict: bool) -> List[str]:
+    if strict:
+        return [raw_response]
+
+    lines = raw_response.split("\n")
+    response_remove_first = "\n".join(lines[1:]).strip()
+    response_remove_last = "\n".join(lines[:-1]).strip()
+    response_remove_both = "\n".join(lines[1:-1]).strip()
+    revised_response = raw_response.replace("*", "")
+    revised_response_remove_first = response_remove_first.replace("*", "")
+    revised_response_remove_last = response_remove_last.replace("*", "")
+    revised_response_remove_both = response_remove_both.replace("*", "")
+    return [
+        raw_response,
+        revised_response,
+        response_remove_first,
+        response_remove_last,
+        response_remove_both,
+        revised_response_remove_first,
+        revised_response_remove_last,
+        revised_response_remove_both,
+    ]
+
+
+def _filter_instruction_kwargs(instruction, raw_kwargs: object) -> Dict[str, object]:
+    if not isinstance(raw_kwargs, dict):
+        return {}
+
+    accepted_keys = []
     try:
-        return evaluate_instruction_following(merged)
-    except TypeError:
-        return evaluate_instruction_following(inputs=prompt_payload, responses=response_payload)
+        accepted_keys = list(instruction.get_instruction_args_keys())
+    except Exception:
+        accepted_keys = []
+
+    if not accepted_keys:
+        try:
+            params = signature(instruction.build_description).parameters
+            accepted_keys = [
+                name for name, param in params.items()
+                if name != "self" and param.kind in (param.KEYWORD_ONLY, param.POSITIONAL_OR_KEYWORD)
+            ]
+        except (TypeError, ValueError):
+            accepted_keys = []
+
+    return {
+        key: value
+        for key, value in raw_kwargs.items()
+        if key in accepted_keys and value is not None
+    }
 
 
 def _check_constraint(constraint: Constraint, response: str) -> bool:

@@ -8,6 +8,7 @@ from .audit import audit_results
 from .datasets import load_jsonl_dataset
 from .datasets import load_dataset_from_config
 from .experiments import run_experiment
+from .preflight import run_preflight
 from .reporting import build_reports
 from .status import read_status
 
@@ -35,6 +36,9 @@ def build_parser() -> argparse.ArgumentParser:
     audit_parser = subparsers.add_parser("audit-results", help="Check whether results look complete and reasonable.")
     audit_parser.add_argument("--results", required=True, help="Path to results JSONL.")
     audit_parser.add_argument("--output-dir", required=True, help="Directory for audit output.")
+
+    preflight_parser = subparsers.add_parser("preflight", help="Validate the environment and config before a long run.")
+    preflight_parser.add_argument("--config", required=True, help="Path to runtime config JSON.")
 
     return parser
 
@@ -99,6 +103,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "audit-results":
         audit_path = audit_results(Path(args.results), Path(args.output_dir))
         print(json.dumps({"audit_path": str(audit_path)}, indent=2))
+        return 0
+
+    if args.command == "preflight":
+        config_path = Path(args.config)
+        with config_path.open("r", encoding="utf-8") as handle:
+            config = json.load(handle)
+        report = run_preflight(config_path, config)
+        print(json.dumps(report, indent=2))
         return 0
 
     parser.error("Unknown command")
