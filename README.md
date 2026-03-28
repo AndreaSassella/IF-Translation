@@ -14,7 +14,7 @@ Repeated translation acts as a structured perturbation on an instruction. If a b
 - whether degradation is explained by translation quality alone,
 - and whether some models are unusually robust to instruction drift.
 
-## Why This Is Strong
+## Upside
 
 - `IFEval` is a good anchor benchmark because its constraints are programmatically checkable.
 - Translation chains induce a controllable perturbation process instead of ad hoc prompt rewriting.
@@ -68,10 +68,6 @@ The highest-value questions for a paper are:
 4. Do multilingual-capable models preserve constraint satisfaction better than English-dominant models when the final prompt is translated back into English?
 5. Are failures driven by semantic drift in the task meaning or by corruption of the instruction schema itself?
 6. Does chain translation expose latent alignment brittleness that is not visible on standard one-shot instruction-following benchmarks?
-
-## Suggested First Paper Title
-
-`Lost in Translation Chains: Measuring Instruction-Following Degradation in Medium-Scale Language Models`
 
 ## Quick Start
 
