@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from collections import defaultdict
+from inspect import signature
 from typing import Dict, List, Tuple
 
 from .schemas import Constraint, EvaluationResult, PromptRecord
@@ -77,8 +78,7 @@ def _evaluate_ifeval_record(
         ) from exc
 
     raw = dict(record.raw_example)
-    raw["response"] = raw_response
-    metrics = evaluate_instruction_following([raw])
+    metrics = _run_ifeval(evaluate_instruction_following, raw, raw_response)
 
     prompt_level_strict = float(_metric(metrics, "prompt_level_strict_acc", "prompt-level-strict-accuracy", default=0.0))
     prompt_level_loose = float(_metric(metrics, "prompt_level_loose_acc", "prompt-level-loose-accuracy", default=0.0))
@@ -126,6 +126,36 @@ def _metric(metrics: Dict[str, object], *keys: str, default: object) -> object:
         if key in metrics:
             return metrics[key]
     return default
+
+
+def _run_ifeval(evaluate_instruction_following, raw_example: Dict[str, object], raw_response: str) -> Dict[str, object]:
+    """
+    Support the common IFEval package API variants:
+
+    1. evaluate_instruction_following(inputs, responses)
+    2. evaluate_instruction_following(examples)
+    3. evaluate_instruction_following(prompts=..., responses=...)
+    """
+    try:
+        params = list(signature(evaluate_instruction_following).parameters)
+    except (TypeError, ValueError):
+        params = []
+
+    prompt_payload = [dict(raw_example)]
+    response_payload = [raw_response]
+
+    if len(params) >= 2:
+        first, second = params[0], params[1]
+        try:
+            return evaluate_instruction_following(**{first: prompt_payload, second: response_payload})
+        except TypeError:
+            return evaluate_instruction_following(prompt_payload, response_payload)
+
+    merged = [dict(raw_example, response=raw_response)]
+    try:
+        return evaluate_instruction_following(merged)
+    except TypeError:
+        return evaluate_instruction_following(inputs=prompt_payload, responses=response_payload)
 
 
 def _check_constraint(constraint: Constraint, response: str) -> bool:
