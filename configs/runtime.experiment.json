@@ -38,5 +38,6 @@
     "max_length": 1024,
     "torch_dtype": "bfloat16"
   },
+  "eta_warmup_rows": 50,
   "output_dir": "outputs/ifeval_full_run"
 }

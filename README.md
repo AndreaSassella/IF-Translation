@@ -182,3 +182,9 @@ Every report build also writes `audit.json`, which checks:
 - whether baseline rows are present
 - whether expected regimes are present
 - whether perturbed averages suspiciously exceed baseline averages
+
+After a short warmup, the run also appends an ETA note to `status.json` based on observed throughput on your machine.
+
+## Efficiency Notes
+
+The experiment loop now reuses cached prompt translations across models and across repeated path/regime traversals. This avoids recomputing the same translation chains for every evaluated model and makes full-benchmark runs noticeably cheaper.

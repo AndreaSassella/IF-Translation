@@ -4,6 +4,7 @@ import json
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Dict, List
 
 from .adapters import make_model_adapter, make_translation_adapter
@@ -52,11 +53,16 @@ def run_experiment(config_path: Path) -> Path:
 
     total_steps_per_record = 1 + (len(config["regimes"]) * sum(max(len(path) - 1, 0) for path in config["paths"]))
     overall_total = len(models) * len(dataset) * total_steps_per_record
+    eta_warmup_rows = int(config.get("eta_warmup_rows", 50))
     overall_bar = _make_progress_bar(
         total=overall_total,
         desc="Overall experiment progress",
         position=0,
     )
+    start_time = perf_counter()
+    translation_cache: Dict[tuple, str] = {}
+    translation_histories: Dict[tuple, List[TranslationStep]] = {}
+    eta_reported = False
 
     results_path = output_dir / "results.jsonl"
     with results_path.open("w", encoding="utf-8") as sink:
@@ -67,6 +73,10 @@ def run_experiment(config_path: Path) -> Path:
                 position=1,
             )
             for record in dataset:
+                if not eta_reported and status.completed_rows >= max(1, eta_warmup_rows * total_steps_per_record):
+                    _record_eta_note(status, status_path, start_time, overall_total)
+                    eta_reported = True
+
                 baseline = evaluate_record(
                     record=record,
                     model_name=model.name,
@@ -86,34 +96,30 @@ def run_experiment(config_path: Path) -> Path:
 
                 for regime in config["regimes"]:
                     for path in config["paths"]:
-                        translated_prompt = record.original_prompt
-                        history: List[TranslationStep] = []
+                        history = _get_or_build_translation_history(
+                            translation=translation,
+                            translation_cache=translation_cache,
+                            history_cache=translation_histories,
+                            prompt_id=record.prompt_id,
+                            original_prompt=record.original_prompt,
+                            path=path,
+                        )
                         for depth, (source_lang, target_lang) in enumerate(
                             zip(path, path[1:]),
                             start=1,
                         ):
-                            translated_prompt = translation.translate(
-                                translated_prompt,
-                                source_lang,
-                                target_lang,
-                            )
-                            history.append(
-                                TranslationStep(
-                                    step_index=depth,
-                                    source_lang=source_lang,
-                                    target_lang=target_lang,
-                                    input_text=record.original_prompt if depth == 1 else history[-1].output_text,
-                                    output_text=translated_prompt,
-                                    engine_name=translation.name,
-                                )
-                            )
+                            step = history[depth - 1]
+                            translated_prompt = step.output_text
 
                             evaluated_prompt = translated_prompt
                             if regime == "back_translated" and target_lang != "en":
-                                evaluated_prompt = translation.translate(
-                                    translated_prompt,
-                                    target_lang,
-                                    "en",
+                                evaluated_prompt = _translate_cached(
+                                    translation=translation,
+                                    cache=translation_cache,
+                                    prompt_id=record.prompt_id,
+                                    text=translated_prompt,
+                                    source_lang=target_lang,
+                                    target_lang="en",
                                 )
 
                             response = model.generate(record, evaluated_prompt)
@@ -127,7 +133,7 @@ def run_experiment(config_path: Path) -> Path:
                                 raw_response=response,
                             )
                             result.extra["dataset_source"] = dataset_source
-                            result.extra["translation_step"] = asdict(history[-1])
+                            result.extra["translation_step"] = asdict(step)
                             sink.write(json.dumps(asdict(result), ensure_ascii=False) + "\n")
                             status.completed_rows += 1
                             status.updated_at = datetime.now(timezone.utc).isoformat()
@@ -177,6 +183,76 @@ def _make_model_from_spec(spec: Any):
             return make_model_adapter(spec["model_id"], spec)
         return make_model_adapter(spec["name"], spec)
     raise ValueError(f"Unsupported model spec: {spec}")
+
+
+def _get_or_build_translation_history(
+    translation,
+    translation_cache: Dict[tuple, str],
+    history_cache: Dict[tuple, List[TranslationStep]],
+    prompt_id: str,
+    original_prompt: str,
+    path: List[str],
+) -> List[TranslationStep]:
+    history_key = (prompt_id, tuple(path), translation.name)
+    if history_key in history_cache:
+        return history_cache[history_key]
+
+    translated_prompt = original_prompt
+    history: List[TranslationStep] = []
+    for depth, (source_lang, target_lang) in enumerate(zip(path, path[1:]), start=1):
+        translated_prompt = _translate_cached(
+            translation=translation,
+            cache=translation_cache,
+            prompt_id=prompt_id,
+            text=translated_prompt,
+            source_lang=source_lang,
+            target_lang=target_lang,
+        )
+        history.append(
+            TranslationStep(
+                step_index=depth,
+                source_lang=source_lang,
+                target_lang=target_lang,
+                input_text=original_prompt if depth == 1 else history[-1].output_text,
+                output_text=translated_prompt,
+                engine_name=translation.name,
+            )
+        )
+    history_cache[history_key] = history
+    return history
+
+
+def _translate_cached(
+    translation,
+    cache: Dict[tuple, str],
+    prompt_id: str,
+    text: str,
+    source_lang: str,
+    target_lang: str,
+) -> str:
+    key = (prompt_id, source_lang, target_lang, text, translation.name)
+    if key not in cache:
+        cache[key] = translation.translate(text, source_lang, target_lang)
+    return cache[key]
+
+
+def _record_eta_note(
+    status: ExperimentStatus,
+    status_path: Path,
+    start_time: float,
+    overall_total: int,
+) -> None:
+    elapsed = max(perf_counter() - start_time, 1e-9)
+    rate = status.completed_rows / elapsed if status.completed_rows else 0.0
+    remaining = max(overall_total - status.completed_rows, 0)
+    remaining_seconds = remaining / rate if rate > 0 else 0.0
+    hours = remaining_seconds / 3600.0
+    note = (
+        f"ETA estimate after warmup: {rate:.2f} rows/sec, "
+        f"approximately {hours:.2f} hours remaining."
+    )
+    status.notes.append(note)
+    write_status(status_path, status)
 
 
 def _make_progress_bar(total: int, desc: str, position: int):
