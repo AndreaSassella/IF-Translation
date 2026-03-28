@@ -1,0 +1,28 @@
+{
+  "run_name": "hf-ifeval-example",
+  "dataset": {
+    "type": "huggingface",
+    "name": "HuggingFaceH4/ifeval",
+    "split": "train",
+    "prompt_field": "prompt",
+    "prompt_id_field": "prompt_id",
+    "constraints_field": "constraints",
+    "ideal_response_field": null,
+    "limit": 100
+  },
+  "models": [
+    "reference",
+    "fragile"
+  ],
+  "paths": [
+    ["en", "fr", "en"],
+    ["en", "de", "en"]
+  ],
+  "regimes": [
+    "native",
+    "back_translated"
+  ],
+  "allow_placeholder_ifeval_evaluator": false,
+  "translation_engine": "drift",
+  "output_dir": "outputs/hf_example_run"
+}

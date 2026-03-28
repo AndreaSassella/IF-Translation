@@ -6,6 +6,8 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Dict, Iterable, List
 
+from .audit import audit_results
+
 
 def build_reports(results_path: Path, output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -15,6 +17,7 @@ def build_reports(results_path: Path, output_dir: Path) -> None:
     _write_regime_table(rows, output_dir / "regime_summary.csv")
     _write_category_table(rows, output_dir / "category_scores.csv")
     _write_markdown_report(rows, output_dir / "REPORT.md")
+    audit_results(results_path, output_dir)
 
 
 def _load_jsonl(path: Path) -> Iterable[dict]:
@@ -32,6 +35,12 @@ def _write_summary_json(rows: List[dict], path: Path) -> None:
         "regimes": sorted({row["regime"] for row in rows}),
         "depths": sorted({row["depth"] for row in rows}),
         "prompts": sorted({row["prompt_id"] for row in rows}),
+        "dataset_sources": sorted(
+            {
+                row.get("extra", {}).get("dataset_source", "unknown")
+                for row in rows
+            }
+        ),
     }
     with path.open("w", encoding="utf-8") as handle:
         json.dump(summary, handle, indent=2)

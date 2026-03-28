@@ -19,6 +19,21 @@ class PromptRecord:
 
 
 @dataclass
+class ExperimentStatus:
+    run_name: str
+    status: str
+    dataset_source: str
+    dataset_size: int
+    expected_rows: int
+    completed_rows: int = 0
+    started_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    output_dir: Optional[str] = None
+    notes: List[str] = field(default_factory=list)
+
+
+@dataclass
 class TranslationStep:
     step_index: int
     source_lang: str

@@ -1,5 +1,9 @@
 {
-  "dataset_path": "data/sample/ifeval_like_sample.jsonl",
+  "run_name": "sample-local-demo",
+  "dataset": {
+    "type": "local_jsonl",
+    "path": "data/sample/ifeval_like_sample.jsonl"
+  },
   "models": [
     "reference",
     "fragile",
