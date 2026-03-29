@@ -26,11 +26,13 @@ Repeated translation acts as a structured perturbation on an instruction. If a b
 - `docs/research_brief.md`: reviewer-facing framing, questions, hypotheses, and contributions
 - `docs/experimental_design.md`: benchmark choice, protocol, statistics, and threats to validity
 - `docs/reviewer_faq.md`: likely reviewer objections and how the design addresses them
+- `docs/research_extensions.md`: additional models and follow-up experiments that stay distinct from the closest prior work
 - `configs/models.yaml`: candidate model panel in the 0.5B-10B range
 - `configs/language_paths.yaml`: translation-chain families and controls
 - `configs/experiment.yaml`: default experimental settings
 - `configs/runtime.experiment.json`: default full `IFEval` config for command-line experiments
 - `configs/runtime.hf.example.json`: example Hugging Face-backed config
+- `configs/runtime.extended_models.json`: separate config that adds two larger models without changing the default run
 - `data/sample/ifeval_like_sample.jsonl`: local `IFEval`-like sample dataset
 - `src/translation_chains/`: executable pipeline for loading prompts, translating, evaluating, and aggregating
 - `notebooks/`: step-by-step walkthroughs of the data flow, run status, and result inspection
@@ -132,6 +134,18 @@ The default config in `configs/runtime.experiment.json` runs:
   - `en -> fr -> ar -> en`
 
 This is the smallest realistic starting point that still executes the full benchmark.
+
+For a larger comparison run that keeps the current default untouched, use:
+
+```bash
+python main.py preflight --config configs/runtime.extended_models.json
+python main.py run --config configs/runtime.extended_models.json
+```
+
+That config adds:
+
+- `Qwen/Qwen2.5-7B-Instruct`
+- `google/gemma-2-9b-it`
 
 ## Progress Tracking
 

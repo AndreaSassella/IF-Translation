@@ -1,0 +1,63 @@
+{
+  "run_name": "ifeval-extended-models",
+  "dataset": {
+    "type": "huggingface",
+    "name": "google/IFEval",
+    "split": "train",
+    "prompt_field": "prompt",
+    "prompt_id_field": "key",
+    "constraints_field": "instruction_id_list",
+    "limit": null
+  },
+  "models": [
+    {
+      "name": "Qwen2.5-0.5B-Instruct",
+      "type": "huggingface_generation",
+      "model_id": "Qwen/Qwen2.5-0.5B-Instruct",
+      "max_new_tokens": 512,
+      "temperature": 0.0,
+      "top_p": 1.0,
+      "device_map": "auto",
+      "torch_dtype": "bfloat16"
+    },
+    {
+      "name": "Qwen2.5-7B-Instruct",
+      "type": "huggingface_generation",
+      "model_id": "Qwen/Qwen2.5-7B-Instruct",
+      "max_new_tokens": 512,
+      "temperature": 0.0,
+      "top_p": 1.0,
+      "device_map": "auto",
+      "torch_dtype": "bfloat16"
+    },
+    {
+      "name": "Gemma-2-9b-it",
+      "type": "huggingface_generation",
+      "model_id": "google/gemma-2-9b-it",
+      "max_new_tokens": 512,
+      "temperature": 0.0,
+      "top_p": 1.0,
+      "device_map": "auto",
+      "torch_dtype": "bfloat16"
+    }
+  ],
+  "paths": [
+    ["en", "fr", "en"],
+    ["en", "de", "en"],
+    ["en", "ja", "en"],
+    ["en", "fr", "ar", "en"]
+  ],
+  "regimes": [
+    "native",
+    "back_translated"
+  ],
+  "translation_engine": "nllb",
+  "translation_adapter": {
+    "model_id": "facebook/nllb-200-distilled-600M",
+    "device_map": "auto",
+    "max_length": 1024,
+    "torch_dtype": "bfloat16"
+  },
+  "eta_warmup_rows": 50,
+  "output_dir": "outputs/ifeval_extended_models_run"
+}
