@@ -5,14 +5,14 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Set, Tuple
 
 from .adapters import make_model_adapter, make_translation_adapter
 from .datasets import load_dataset_from_config
 from .evaluators import evaluate_record
 from .reporting import build_reports
 from .schemas import ExperimentStatus, TranslationStep
-from .status import write_status
+from .status import read_status, write_status
 
 try:
     from tqdm.auto import tqdm
@@ -37,18 +37,44 @@ def run_experiment(config_path: Path) -> Path:
     run_name = config.get("run_name", output_dir.name)
     dataset_source = _describe_dataset_source(config)
     expected_rows = _expected_row_count(dataset_size=len(dataset), config=config)
-    status = ExperimentStatus(
-        run_name=run_name,
-        status="running",
-        dataset_source=dataset_source,
-        dataset_size=len(dataset),
-        expected_rows=expected_rows,
-        completed_rows=0,
-        started_at=datetime.now(timezone.utc).isoformat(),
-        updated_at=datetime.now(timezone.utc).isoformat(),
-        output_dir=str(output_dir),
-        notes=[],
-    )
+    results_path = output_dir / "results.jsonl"
+    completed_keys = _load_completed_keys(results_path)
+    completed_by_model = _count_completed_by_model(completed_keys)
+
+    if status_path.exists():
+        status = read_status(status_path)
+        status.run_name = run_name
+        status.dataset_source = dataset_source
+        status.dataset_size = len(dataset)
+        status.expected_rows = expected_rows
+        status.completed_rows = len(completed_keys)
+        status.status = "running"
+        status.updated_at = datetime.now(timezone.utc).isoformat()
+        status.output_dir = str(output_dir)
+    else:
+        status = ExperimentStatus(
+            run_name=run_name,
+            status="running",
+            dataset_source=dataset_source,
+            dataset_size=len(dataset),
+            expected_rows=expected_rows,
+            completed_rows=len(completed_keys),
+            started_at=datetime.now(timezone.utc).isoformat(),
+            updated_at=datetime.now(timezone.utc).isoformat(),
+            output_dir=str(output_dir),
+            notes=[],
+        )
+
+    if len(completed_keys) >= expected_rows:
+        status.status = "completed"
+        status.completed_rows = expected_rows
+        status.finished_at = status.finished_at or datetime.now(timezone.utc).isoformat()
+        status.updated_at = datetime.now(timezone.utc).isoformat()
+        write_status(status_path, status)
+        build_reports(results_path, output_dir)
+        print(f"Run '{run_name}' is already complete. Skipping execution.")
+        return results_path
+
     write_status(status_path, status)
 
     total_steps_per_record = 1 + (len(config["regimes"]) * sum(max(len(path) - 1, 0) for path in config["paths"]))
@@ -58,44 +84,71 @@ def run_experiment(config_path: Path) -> Path:
         total=overall_total,
         desc="Overall experiment progress",
         position=0,
+        initial=len(completed_keys),
     )
     start_time = perf_counter()
     translation_cache: Dict[tuple, str] = {}
     translation_histories: Dict[tuple, List[TranslationStep]] = {}
     eta_reported = False
 
-    results_path = output_dir / "results.jsonl"
-    with results_path.open("w", encoding="utf-8") as sink:
+    with results_path.open("a", encoding="utf-8") as sink:
         for model_index, model in enumerate(models, start=1):
             model_bar = _make_progress_bar(
                 total=len(dataset) * total_steps_per_record,
                 desc=f"Model {model_index}/{len(models)}: {model.name}",
                 position=1,
+                initial=completed_by_model.get(model.name, 0),
             )
             for record in dataset:
                 if not eta_reported and status.completed_rows >= max(1, eta_warmup_rows * total_steps_per_record):
                     _record_eta_note(status, status_path, start_time, overall_total)
                     eta_reported = True
 
-                baseline = evaluate_record(
-                    record=record,
+                baseline_key = _result_key(
                     model_name=model.name,
+                    prompt_id=record.prompt_id,
                     regime="baseline",
                     language_path=["en"],
                     depth=0,
-                    evaluated_prompt=record.original_prompt,
-                    raw_response=model.generate(record, record.original_prompt),
                 )
-                baseline.extra["dataset_source"] = dataset_source
-                sink.write(json.dumps(asdict(baseline), ensure_ascii=False) + "\n")
-                status.completed_rows += 1
-                status.updated_at = datetime.now(timezone.utc).isoformat()
-                write_status(status_path, status)
-                _progress_update(overall_bar, 1)
-                _progress_update(model_bar, 1)
+                if baseline_key not in completed_keys:
+                    baseline = evaluate_record(
+                        record=record,
+                        model_name=model.name,
+                        regime="baseline",
+                        language_path=["en"],
+                        depth=0,
+                        evaluated_prompt=record.original_prompt,
+                        raw_response=model.generate(record, record.original_prompt),
+                    )
+                    baseline.extra["dataset_source"] = dataset_source
+                    sink.write(json.dumps(asdict(baseline), ensure_ascii=False) + "\n")
+                    _mark_completed(
+                        completed_keys=completed_keys,
+                        completed_by_model=completed_by_model,
+                        key=baseline_key,
+                        model_name=model.name,
+                        status=status,
+                        status_path=status_path,
+                    )
+                    _progress_update(overall_bar, 1)
+                    _progress_update(model_bar, 1)
 
                 for regime in config["regimes"]:
                     for path in config["paths"]:
+                        path_keys = [
+                            _result_key(
+                                model_name=model.name,
+                                prompt_id=record.prompt_id,
+                                regime=regime,
+                                language_path=path[: depth + 1],
+                                depth=depth,
+                            )
+                            for depth in range(1, len(path))
+                        ]
+                        if all(key in completed_keys for key in path_keys):
+                            continue
+
                         history = _get_or_build_translation_history(
                             translation=translation,
                             translation_cache=translation_cache,
@@ -122,6 +175,16 @@ def run_experiment(config_path: Path) -> Path:
                                     target_lang="en",
                                 )
 
+                            result_key = _result_key(
+                                model_name=model.name,
+                                prompt_id=record.prompt_id,
+                                regime=regime,
+                                language_path=path[: depth + 1],
+                                depth=depth,
+                            )
+                            if result_key in completed_keys:
+                                continue
+
                             response = model.generate(record, evaluated_prompt)
                             result = evaluate_record(
                                 record=record,
@@ -135,9 +198,14 @@ def run_experiment(config_path: Path) -> Path:
                             result.extra["dataset_source"] = dataset_source
                             result.extra["translation_step"] = asdict(step)
                             sink.write(json.dumps(asdict(result), ensure_ascii=False) + "\n")
-                            status.completed_rows += 1
-                            status.updated_at = datetime.now(timezone.utc).isoformat()
-                            write_status(status_path, status)
+                            _mark_completed(
+                                completed_keys=completed_keys,
+                                completed_by_model=completed_by_model,
+                                key=result_key,
+                                model_name=model.name,
+                                status=status,
+                                status_path=status_path,
+                            )
                             _progress_update(overall_bar, 1)
                             _progress_update(model_bar, 1)
             _progress_close(model_bar)
@@ -255,10 +323,10 @@ def _record_eta_note(
     write_status(status_path, status)
 
 
-def _make_progress_bar(total: int, desc: str, position: int):
+def _make_progress_bar(total: int, desc: str, position: int, initial: int = 0):
     if tqdm is None:
         return None
-    return tqdm(total=total, desc=desc, position=position, leave=True)
+    return tqdm(total=total, desc=desc, position=position, leave=True, initial=initial)
 
 
 def _progress_update(bar, amount: int) -> None:
@@ -269,3 +337,59 @@ def _progress_update(bar, amount: int) -> None:
 def _progress_close(bar) -> None:
     if bar is not None:
         bar.close()
+
+
+def _load_completed_keys(results_path: Path) -> Set[Tuple[str, str, str, Tuple[str, ...], int]]:
+    if not results_path.exists():
+        return set()
+    keys: Set[Tuple[str, str, str, Tuple[str, ...], int]] = set()
+    with results_path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            row = json.loads(line)
+            keys.add(
+                _result_key(
+                    model_name=row["model_name"],
+                    prompt_id=row["prompt_id"],
+                    regime=row["regime"],
+                    language_path=row["language_path"],
+                    depth=row["depth"],
+                )
+            )
+    return keys
+
+
+def _result_key(
+    model_name: str,
+    prompt_id: str,
+    regime: str,
+    language_path: List[str] | Tuple[str, ...],
+    depth: int,
+) -> Tuple[str, str, str, Tuple[str, ...], int]:
+    return (model_name, prompt_id, regime, tuple(language_path), int(depth))
+
+
+def _count_completed_by_model(
+    completed_keys: Set[Tuple[str, str, str, Tuple[str, ...], int]]
+) -> Dict[str, int]:
+    counts: Dict[str, int] = {}
+    for model_name, *_ in completed_keys:
+        counts[model_name] = counts.get(model_name, 0) + 1
+    return counts
+
+
+def _mark_completed(
+    completed_keys: Set[Tuple[str, str, str, Tuple[str, ...], int]],
+    completed_by_model: Dict[str, int],
+    key: Tuple[str, str, str, Tuple[str, ...], int],
+    model_name: str,
+    status: ExperimentStatus,
+    status_path: Path,
+) -> None:
+    completed_keys.add(key)
+    completed_by_model[model_name] = completed_by_model.get(model_name, 0) + 1
+    status.completed_rows = len(completed_keys)
+    status.updated_at = datetime.now(timezone.utc).isoformat()
+    write_status(status_path, status)

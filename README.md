@@ -199,6 +199,8 @@ Every report build also writes `audit.json`, which checks:
 
 After a short warmup, the run also appends an ETA note to `status.json` based on observed throughput on your machine.
 
+The runner is also resumable: if `results.jsonl` already contains completed experiment rows, they are skipped instead of recomputed, and a fully completed run exits immediately.
+
 ## Efficiency Notes
 
 The experiment loop now reuses cached prompt translations across models and across repeated path/regime traversals. This avoids recomputing the same translation chains for every evaluated model and makes full-benchmark runs noticeably cheaper.
