@@ -201,6 +201,8 @@ After a short warmup, the run also appends an ETA note to `status.json` based on
 
 The runner is also resumable: if `results.jsonl` already contains completed experiment rows, they are skipped instead of recomputed, and a fully completed run exits immediately.
 
+To make interruption recovery more reliable, completed rows are now checkpoint-flushed to disk during the run. The checkpoint cadence can be controlled with `checkpoint_every_rows` in the runtime config.
+
 ## Efficiency Notes
 
 The experiment loop now reuses cached prompt translations across models and across repeated path/regime traversals. This avoids recomputing the same translation chains for every evaluated model and makes full-benchmark runs noticeably cheaper.

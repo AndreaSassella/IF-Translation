@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -80,6 +81,7 @@ def run_experiment(config_path: Path) -> Path:
     total_steps_per_record = 1 + (len(config["regimes"]) * sum(max(len(path) - 1, 0) for path in config["paths"]))
     overall_total = len(models) * len(dataset) * total_steps_per_record
     eta_warmup_rows = int(config.get("eta_warmup_rows", 50))
+    checkpoint_every = int(config.get("checkpoint_every_rows", 1))
     overall_bar = _make_progress_bar(
         total=overall_total,
         desc="Overall experiment progress",
@@ -90,6 +92,7 @@ def run_experiment(config_path: Path) -> Path:
     translation_cache: Dict[tuple, str] = {}
     translation_histories: Dict[tuple, List[TranslationStep]] = {}
     eta_reported = False
+    writes_since_flush = 0
 
     with results_path.open("a", encoding="utf-8") as sink:
         for model_index, model in enumerate(models, start=1):
@@ -123,6 +126,11 @@ def run_experiment(config_path: Path) -> Path:
                     )
                     baseline.extra["dataset_source"] = dataset_source
                     sink.write(json.dumps(asdict(baseline), ensure_ascii=False) + "\n")
+                    writes_since_flush = _checkpoint_if_needed(
+                        sink=sink,
+                        writes_since_flush=writes_since_flush + 1,
+                        checkpoint_every=checkpoint_every,
+                    )
                     _mark_completed(
                         completed_keys=completed_keys,
                         completed_by_model=completed_by_model,
@@ -198,6 +206,11 @@ def run_experiment(config_path: Path) -> Path:
                             result.extra["dataset_source"] = dataset_source
                             result.extra["translation_step"] = asdict(step)
                             sink.write(json.dumps(asdict(result), ensure_ascii=False) + "\n")
+                            writes_since_flush = _checkpoint_if_needed(
+                                sink=sink,
+                                writes_since_flush=writes_since_flush + 1,
+                                checkpoint_every=checkpoint_every,
+                            )
                             _mark_completed(
                                 completed_keys=completed_keys,
                                 completed_by_model=completed_by_model,
@@ -209,6 +222,8 @@ def run_experiment(config_path: Path) -> Path:
                             _progress_update(overall_bar, 1)
                             _progress_update(model_bar, 1)
             _progress_close(model_bar)
+        if writes_since_flush:
+            _flush_checkpoint(sink)
 
     status.status = "completed"
     status.finished_at = datetime.now(timezone.utc).isoformat()
@@ -344,11 +359,18 @@ def _load_completed_keys(results_path: Path) -> Set[Tuple[str, str, str, Tuple[s
         return set()
     keys: Set[Tuple[str, str, str, Tuple[str, ...], int]] = set()
     with results_path.open("r", encoding="utf-8") as handle:
-        for line in handle:
+        for line_number, line in enumerate(handle, start=1):
             line = line.strip()
             if not line:
                 continue
-            row = json.loads(line)
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                print(
+                    f"Warning: ignoring incomplete or invalid JSONL row at "
+                    f"{results_path}:{line_number} during resume recovery."
+                )
+                continue
             keys.add(
                 _result_key(
                     model_name=row["model_name"],
@@ -393,3 +415,15 @@ def _mark_completed(
     status.completed_rows = len(completed_keys)
     status.updated_at = datetime.now(timezone.utc).isoformat()
     write_status(status_path, status)
+
+
+def _checkpoint_if_needed(sink, writes_since_flush: int, checkpoint_every: int) -> int:
+    if checkpoint_every <= 1 or writes_since_flush >= checkpoint_every:
+        _flush_checkpoint(sink)
+        return 0
+    return writes_since_flush
+
+
+def _flush_checkpoint(sink) -> None:
+    sink.flush()
+    os.fsync(sink.fileno())
