@@ -39,7 +39,7 @@ def run_experiment(config_path: Path) -> Path:
     dataset_source = _describe_dataset_source(config)
     expected_rows = _expected_row_count(dataset_size=len(dataset), config=config)
     results_path = output_dir / "results.jsonl"
-    completed_keys = _load_completed_keys(results_path)
+    completed_keys, raw_result_rows = _load_completed_keys(results_path)
     completed_by_model = _count_completed_by_model(completed_keys)
 
     if status_path.exists():
@@ -49,6 +49,7 @@ def run_experiment(config_path: Path) -> Path:
         status.dataset_size = len(dataset)
         status.expected_rows = expected_rows
         status.completed_rows = len(completed_keys)
+        status.raw_result_rows = raw_result_rows
         status.status = "running"
         status.updated_at = datetime.now(timezone.utc).isoformat()
         status.output_dir = str(output_dir)
@@ -60,6 +61,7 @@ def run_experiment(config_path: Path) -> Path:
             dataset_size=len(dataset),
             expected_rows=expected_rows,
             completed_rows=len(completed_keys),
+            raw_result_rows=raw_result_rows,
             started_at=datetime.now(timezone.utc).isoformat(),
             updated_at=datetime.now(timezone.utc).isoformat(),
             output_dir=str(output_dir),
@@ -69,6 +71,7 @@ def run_experiment(config_path: Path) -> Path:
     if len(completed_keys) >= expected_rows:
         status.status = "completed"
         status.completed_rows = expected_rows
+        status.raw_result_rows = raw_result_rows
         status.finished_at = status.finished_at or datetime.now(timezone.utc).isoformat()
         status.updated_at = datetime.now(timezone.utc).isoformat()
         write_status(status_path, status)
@@ -225,9 +228,20 @@ def run_experiment(config_path: Path) -> Path:
         if writes_since_flush:
             _flush_checkpoint(sink)
 
-    status.status = "completed"
-    status.finished_at = datetime.now(timezone.utc).isoformat()
-    status.updated_at = status.finished_at
+    status.completed_rows = len(completed_keys)
+    status.raw_result_rows = _count_result_lines(results_path)
+    status.updated_at = datetime.now(timezone.utc).isoformat()
+    if len(completed_keys) >= expected_rows:
+        status.status = "completed"
+        status.finished_at = status.updated_at
+    else:
+        status.status = "incomplete"
+        note = (
+            f"Run stopped before completion: found {len(completed_keys)} unique rows "
+            f"out of {expected_rows} expected."
+        )
+        if note not in status.notes:
+            status.notes.append(note)
     write_status(status_path, status)
     _progress_close(overall_bar)
     build_reports(results_path, output_dir)
@@ -334,7 +348,8 @@ def _record_eta_note(
         f"ETA estimate after warmup: {rate:.2f} rows/sec, "
         f"approximately {hours:.2f} hours remaining."
     )
-    status.notes.append(note)
+    if note not in status.notes:
+        status.notes.append(note)
     write_status(status_path, status)
 
 
@@ -354,15 +369,19 @@ def _progress_close(bar) -> None:
         bar.close()
 
 
-def _load_completed_keys(results_path: Path) -> Set[Tuple[str, str, str, Tuple[str, ...], int]]:
+def _load_completed_keys(
+    results_path: Path,
+) -> Tuple[Set[Tuple[str, str, str, Tuple[str, ...], int]], int]:
     if not results_path.exists():
-        return set()
+        return set(), 0
     keys: Set[Tuple[str, str, str, Tuple[str, ...], int]] = set()
+    raw_rows = 0
     with results_path.open("r", encoding="utf-8") as handle:
         for line_number, line in enumerate(handle, start=1):
             line = line.strip()
             if not line:
                 continue
+            raw_rows += 1
             try:
                 row = json.loads(line)
             except json.JSONDecodeError:
@@ -380,7 +399,7 @@ def _load_completed_keys(results_path: Path) -> Set[Tuple[str, str, str, Tuple[s
                     depth=row["depth"],
                 )
             )
-    return keys
+    return keys, raw_rows
 
 
 def _result_key(
@@ -413,6 +432,7 @@ def _mark_completed(
     completed_keys.add(key)
     completed_by_model[model_name] = completed_by_model.get(model_name, 0) + 1
     status.completed_rows = len(completed_keys)
+    status.raw_result_rows += 1
     status.updated_at = datetime.now(timezone.utc).isoformat()
     write_status(status_path, status)
 
@@ -427,3 +447,10 @@ def _checkpoint_if_needed(sink, writes_since_flush: int, checkpoint_every: int) 
 def _flush_checkpoint(sink) -> None:
     sink.flush()
     os.fsync(sink.fileno())
+
+
+def _count_result_lines(results_path: Path) -> int:
+    if not results_path.exists():
+        return 0
+    with results_path.open("r", encoding="utf-8") as handle:
+        return sum(1 for line in handle if line.strip())

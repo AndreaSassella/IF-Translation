@@ -29,8 +29,20 @@ def _load_jsonl(path: Path) -> Iterable[dict]:
 
 
 def _write_summary_json(rows: List[dict], path: Path) -> None:
+    unique_keys = {
+        (
+            row["model_name"],
+            row["prompt_id"],
+            row["regime"],
+            tuple(row["language_path"]),
+            row["depth"],
+        )
+        for row in rows
+    }
     summary = {
         "rows": len(rows),
+        "unique_rows": len(unique_keys),
+        "duplicate_rows": len(rows) - len(unique_keys),
         "models": sorted({row["model_name"] for row in rows}),
         "regimes": sorted({row["regime"] for row in rows}),
         "depths": sorted({row["depth"] for row in rows}),

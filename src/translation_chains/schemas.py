@@ -27,6 +27,7 @@ class ExperimentStatus:
     dataset_size: int
     expected_rows: int
     completed_rows: int = 0
+    raw_result_rows: int = 0
     started_at: Optional[str] = None
     updated_at: Optional[str] = None
     finished_at: Optional[str] = None
