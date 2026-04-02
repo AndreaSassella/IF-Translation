@@ -1,0 +1,64 @@
+{
+  "run_name": "ifeval-qwen3-and-llama",
+  "dataset": {
+    "type": "huggingface",
+    "name": "google/IFEval",
+    "split": "train",
+    "prompt_field": "prompt",
+    "prompt_id_field": "key",
+    "constraints_field": "instruction_id_list",
+    "limit": null
+  },
+  "models": [
+    {
+      "name": "Qwen3-4B",
+      "type": "huggingface_generation",
+      "model_id": "Qwen/Qwen3-4B",
+      "max_new_tokens": 512,
+      "temperature": 0.0,
+      "top_p": 1.0,
+      "device_map": "auto",
+      "torch_dtype": "bfloat16"
+    },
+    {
+      "name": "Qwen3-8B",
+      "type": "huggingface_generation",
+      "model_id": "Qwen/Qwen3-8B",
+      "max_new_tokens": 512,
+      "temperature": 0.0,
+      "top_p": 1.0,
+      "device_map": "auto",
+      "torch_dtype": "bfloat16"
+    },
+    {
+      "name": "Llama-3.1-8B-Instruct",
+      "type": "huggingface_generation",
+      "model_id": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+      "max_new_tokens": 512,
+      "temperature": 0.0,
+      "top_p": 1.0,
+      "device_map": "auto",
+      "torch_dtype": "bfloat16"
+    }
+  ],
+  "paths": [
+    ["en", "fr", "en"],
+    ["en", "de", "en"],
+    ["en", "ja", "en"],
+    ["en", "fr", "ar", "en"]
+  ],
+  "regimes": [
+    "native",
+    "back_translated"
+  ],
+  "translation_engine": "nllb",
+  "translation_adapter": {
+    "model_id": "facebook/nllb-200-distilled-600M",
+    "device_map": "auto",
+    "max_length": 1024,
+    "torch_dtype": "bfloat16"
+  },
+  "eta_warmup_rows": 50,
+  "checkpoint_every_rows": 1,
+  "output_dir": "outputs/ifeval_qwen3_and_llama_run"
+}

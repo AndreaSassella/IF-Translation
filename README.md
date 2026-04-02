@@ -33,6 +33,7 @@ Repeated translation acts as a structured perturbation on an instruction. If a b
 - `configs/runtime.experiment.json`: default full `IFEval` config for command-line experiments
 - `configs/runtime.hf.example.json`: example Hugging Face-backed config
 - `configs/runtime.extended_models.json`: separate config that adds two larger models without changing the default run
+- `configs/runtime.qwen3_and_llama.json`: separate config that adds Qwen3-4B, Qwen3-8B, and Llama-3.1-8B-Instruct
 - `data/sample/ifeval_like_sample.jsonl`: local `IFEval`-like sample dataset
 - `src/translation_chains/`: executable pipeline for loading prompts, translating, evaluating, and aggregating
 - `notebooks/`: step-by-step walkthroughs of the data flow, run status, and result inspection
@@ -146,6 +147,19 @@ That config adds:
 
 - `Qwen/Qwen2.5-7B-Instruct`
 - `google/gemma-2-9b-it`
+
+For a newer-family comparison run, use:
+
+```bash
+python main.py preflight --config configs/runtime.qwen3_and_llama.json
+python main.py run --config configs/runtime.qwen3_and_llama.json
+```
+
+That config adds:
+
+- `Qwen/Qwen3-4B`
+- `Qwen/Qwen3-8B`
+- `meta-llama/Meta-Llama-3.1-8B-Instruct`
 
 ## Progress Tracking
 

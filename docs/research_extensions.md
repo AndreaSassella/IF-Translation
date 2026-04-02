@@ -12,16 +12,28 @@ That means plain "English versus translated prompt" benchmarking is less novel b
 To extend the evaluation without changing the current validated run, use the separate config:
 
 - `configs/runtime.extended_models.json`
+- `configs/runtime.qwen3_and_llama.json`
 
 It adds two larger models on top of the current default model:
 
 - `Qwen/Qwen2.5-7B-Instruct`
 - `google/gemma-2-9b-it`
 
+An additional comparison config adds:
+
+- `Qwen/Qwen3-4B`
+- `Qwen/Qwen3-8B`
+- `meta-llama/Meta-Llama-3.1-8B-Instruct`
+
 Why these two:
 
 - `Qwen2.5-7B-Instruct` gives a larger model from the same family as the current `Qwen2.5-0.5B-Instruct`, which is ideal for measuring scaling effects under translation-chain perturbation.
 - `Gemma-2-9b-it` is a strong open model with a different training recipe and a more English-leaning profile, making it a useful contrast case against Qwen's broader multilingual positioning.
+
+Why the Qwen3 plus Llama comparison is useful:
+
+- `Qwen3-4B` and `Qwen3-8B` let you test whether the newer Qwen generation changes the robustness slope relative to Qwen2.5.
+- `Llama-3.1-8B-Instruct` is a strong multilingual open baseline with published IFEval numbers on its model card, making it a reviewer-friendly comparison point.
 
 ## Additional Research Questions Worth Pursuing
 
